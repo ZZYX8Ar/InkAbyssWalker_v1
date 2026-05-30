@@ -5,6 +5,10 @@ public class EnemyBattleEntity : BattleEntity
 {
     [Header("敌人多段连击配置")]
     [SerializeField] private EnemyAttackSequence attackSequence;
+    [Header("Battle Reward")]
+    [Tooltip("Ink rewarded when this enemy is defeated")]
+    public int inkReward = 10;
+
 
     // ========================================================
     // 核心重构：声明并运行属于怪物自己的【战斗状态机】！

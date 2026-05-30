@@ -1,7 +1,7 @@
 using UnityEngine;
 
 /// <summary>
-/// 全局存档管理器（纯 C# 单例类，无 MonoBehaviour 额外开销，不挂载物体） [3]
+/// Global save manager. Pure C# singleton, no MonoBehaviour, survives scene reloads. [3]
 /// </summary>
 public class SaveManager
 {
@@ -22,25 +22,29 @@ public class SaveManager
     private const string CheckpointZKey = "CheckpointZ";
     private const string HasSavedKey = "HasSavedCheckpoint";
 
+    // ========================================================
+    // Store system save integration: inventory/wallet/equipment/shop stock persistence
+    // ========================================================
+    private const string StoreDataKey = "StoreData";
+
     private SaveManager()
     {
         LoadCheckpoint();
     }
 
     /// <summary>
-    /// 激活篝火/存档点时调用，自动写入本地硬盘 [3]
+    /// Called when checkpoint is triggered. Auto-write to local disk. [3]
     /// </summary>
     public void SaveCheckpoint(Vector3 position)
     {
         // ========================================================
-        // 核心安全防火墙（防呆/防物理穿透保护）：
-        // 我们的战斗擂台在 X=2000, Y=2000 的物理隔离空域。
-        // 如果传入要保存的存档点 X 和 Y 坐标大于 1500，说明绝对是战斗中意外触发或数据覆盖产生的“脏坐标”，
-        // 必须由系统直接拦截，绝对禁止写入硬盘，从而保护玩家的存档不被污染！ [3]
+        // Security guard: prevent battle scene coordinates from polluting the save.
+        // Battle stage is at X=2000, Y=2000. If X and Y are both > 1500,
+        // it means the player triggered a save from the battle area - reject it. [3]
         // ========================================================
         if (position.x > 1500f && position.y > 1500f)
         {
-            Debug.LogWarning($"[存档系统] 警告：拦截到错误的战斗场景坐标 {position} 写入请求！已安全放弃此次存盘！");
+            Debug.LogWarning($"[SaveSystem] WARNING: Position {position} is in battle area. Save rejected by security guard.");
             return;
         }
 
@@ -49,8 +53,12 @@ public class SaveManager
         PlayerPrefs.SetFloat(CheckpointYKey, position.y);
         PlayerPrefs.SetFloat(CheckpointZKey, position.z);
         PlayerPrefs.SetInt(HasSavedKey, 1);
+
+        // Capture store system data (inventory, wallet, equipment, shop stock)
+        CaptureStoreData();
+
         PlayerPrefs.Save();
-        Debug.Log($"[存档系统] 硬盘存档完毕！当前最新激活复活点: {position}");
+        Debug.Log($"[SaveSystem] Checkpoint saved at: {position}");
     }
 
     public void LoadCheckpoint()
@@ -64,13 +72,85 @@ public class SaveManager
         }
         else
         {
-            // 默认初始起点坐标（第一关出生点）
+            // Default spawn point (first time player)
             LastCheckpointPosition = new Vector3(0f, 0f, 0f);
         }
 
+        // Restore store system data (inventory, wallet, equipment, shop stock)
+        RestoreStoreData();
+
         // ========================================================
-        // 核心新增：启动自检！看看一按下 Play 运行时，你硬盘里加载出的到底是什么坐标！ [3]
+        // Startup self-test log: show what position was loaded from disk! [3]
         // ========================================================
-        Debug.Log($"<color=red><b>[存档自检] 游戏刚刚启动！从硬盘载入的篝火复活点为: {LastCheckpointPosition}</b></color>");
+        Debug.Log($"<color=red><b>[SaveCheck] Loaded: {LastCheckpointPosition}</b></color>");
+    }
+
+    /// <summary>
+    /// Capture store system data and persist to PlayerPrefs
+    /// </summary>
+    private void CaptureStoreData()
+    {
+        try
+        {
+            var storeSaveService = UnityEngine.Object.FindObjectOfType<StoreAndInventory.StoreSaveService>();
+            if (storeSaveService == null)
+            {
+                Debug.LogWarning("[SaveManager] StoreSaveService not found, skipping store capture.");
+                return;
+            }
+
+            string json = storeSaveService.CaptureAllJson();
+            if (!string.IsNullOrEmpty(json))
+            {
+                PlayerPrefs.SetString(StoreDataKey, json);
+                Debug.Log($"[SaveManager] Store data captured ({json.Length} chars).");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[SaveManager] Capture failed: {e.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Restore store system data from PlayerPrefs
+    /// </summary>
+    private void RestoreStoreData()
+    {
+        try
+        {
+            if (!PlayerPrefs.HasKey(StoreDataKey))
+            {
+                Debug.Log("[SaveManager] No store data in PlayerPrefs, using defaults.");
+                return;
+            }
+
+            string json = PlayerPrefs.GetString(StoreDataKey, "");
+            if (string.IsNullOrEmpty(json))
+            {
+                Debug.Log("[SaveManager] Store data empty, using defaults.");
+                return;
+            }
+
+            var storeSaveService = UnityEngine.Object.FindObjectOfType<StoreAndInventory.StoreSaveService>();
+            if (storeSaveService == null)
+            {
+                Debug.LogWarning("[SaveManager] StoreSaveService not found, cannot restore.");
+                return;
+            }
+
+            if (storeSaveService.ApplyAllJson(json, out string error))
+            {
+                Debug.Log("[SaveManager] Store data restored.");
+            }
+            else
+            {
+                Debug.LogWarning($"[SaveManager] Restore failed: {error}");
+            }
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[SaveManager] Restore exception: {e.Message}");
+        }
     }
 }

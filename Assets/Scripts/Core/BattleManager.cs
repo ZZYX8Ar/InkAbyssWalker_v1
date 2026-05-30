@@ -481,6 +481,10 @@ public class BattleManager : MonoBehaviour
             {
                 BattleUIController.Instance.ShowVictoryPanel(true);
             }
+
+            // 1.5 发放战斗胜利货币奖励（Ink 墨币）
+            GrantVictoryReward();
+
             yield return new WaitForSeconds(3.0f);
 
             // 2. 关闭战斗 UI
@@ -988,6 +992,38 @@ public class BattleManager : MonoBehaviour
             if (enemy != null && enemy.Stats.currentHP > 0) return false;
         }
         return true;
+    }
+
+    /// <summary>
+    /// 战斗胜利时遍历所有敌人，累加击杀奖励并发放到钱包
+    /// </summary>
+    private void GrantVictoryReward()
+    {
+        int totalInk = 0;
+        foreach (var enemy in activeEnemies)
+        {
+            if (enemy == null) continue;
+            // 只有死亡的敌人才发放奖励
+            if (enemy.Stats.currentHP <= 0)
+            {
+                totalInk += enemy.inkReward;
+            }
+        }
+
+        if (totalInk > 0)
+        {
+            // 通过 WalletService 发放墨币
+            var wallet = FindObjectOfType<StoreAndInventory.WalletService>();
+            if (wallet != null)
+            {
+                wallet.Add(StoreAndInventory.CurrencyId.Ink, totalInk, "Battle Victory");
+                Debug.Log($"[战斗奖励] 战斗胜利！获得 {totalInk} Ink。");
+            }
+            else
+            {
+                Debug.LogWarning("[战斗奖励] 未找到 WalletService，无法发放 Ink 奖励。");
+            }
+        }
     }
 
     // ========================================================
