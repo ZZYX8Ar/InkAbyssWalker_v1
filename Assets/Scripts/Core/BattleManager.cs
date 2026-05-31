@@ -106,32 +106,7 @@ public class BattleManager : MonoBehaviour
 
     private void Update()
     {
-        // ========================================================
-        // 核心新增：若当前在玩家回合，则每帧自检当前选中的目标是否已经死亡
-        // 如果已死亡则启动自动换锁逻辑，确保伤害能正确打到活怪身上
-        // ========================================================
-        if (currentPhase == BattlePhase.PlayerTurn)
-        {
-            CheckAndAutoSelectNextTarget();
-        }
-
-        // ========================================================
-        // 核心修改：判断玩家当前是否正处于“瞄准状态（PlayerBattleAimState）”
-        // ========================================================
-        bool isAiming = playerParty.Count > 0 &&
-                        playerParty[0].GetBattleStateMachine().currentState is PlayerBattleAimState;
-
-        // 只有在玩家回合，且没有进入瞄准状态时，BattleManager 的通用鼠标检测才生效
-        // 这样可以彻底避免“点击切换锁定目标”与“开枪点射”发生按键冲突！
-        if (currentPhase == BattlePhase.PlayerTurn && !isAiming)
-        {
-            HandleTargetSelection();
-        }
-    }
-
-    /// <summary>
-    /// 核心新增：自动重选目标逻辑。若当前锁定的怪物死亡，则自动指向下一个存活的怪
-    /// </summary>
+        // =================================================    /// </summary>
     private void CheckAndAutoSelectNextTarget()
     {
         // 如果当前没有选中目标，或者当前目标依然存活，则无需执行任何逻辑
@@ -389,7 +364,10 @@ public class BattleManager : MonoBehaviour
             }
         }
 
-        // 9. 动态克隆怪物 
+        ApplyEquipmentStatsToProtagonist();
+        BindEquipmentEffectsForBattle();
+
+        // 9. 动态克隆怪物
         activeEnemies.Clear();
         if (groupIndex >= 0 && groupIndex < enemyDatabase.Count)
         {
@@ -534,9 +512,10 @@ public class BattleManager : MonoBehaviour
             // 6. 传送主角原位，开启移动
             if (playerController != null)
             {
+                RestoreEquipmentStatsToProtagonist();
                 playerController.enabled = true;
                 playerController.rb.velocity = Vector2.zero;
-                playerController.rb.position = savedExplorePosition; // 原地物理传送
+                playerController.rb.position = savedExplorePosition;
                 Physics2D.SyncTransforms();
 
                 Debug.Log($"<color=orange><b>[物理抓包 3：传送归位后] 玩家已经执行物理回归大地图！" +
@@ -597,6 +576,7 @@ public class BattleManager : MonoBehaviour
             // 4. 读取存档点数据：将满血复活的全新主角，物理传送到最后一个篝火激活点坐标上！
             if (playerController != null)
             {
+                RestoreEquipmentStatsToProtagonist();
                 // 回满血蓝状态
                 var stats = playerController.GetComponent<CharacterStats>();
                 if (stats != null)
@@ -1113,4 +1093,60 @@ public class BattleManager : MonoBehaviour
         yield return new WaitForSecondsRealtime(duration); // 使用不受时间缩放影响的真实秒数
         Time.timeScale = 1.0f;  // 恢复正常
     }
+
+    void ApplyEquipmentStatsToProtagonist()
+    {
+        if (playerController == null)
+            return;
+
+        var stats = playerController.GetComponent<CharacterStats>();
+        if (stats == null)
+            return;
+
+        StoreAndInventory.BattleStatSyncBridge.ApplyToCharacterStats(stats);
+    }
+
+    void RestoreEquipmentStatsToProtagonist()
+    {
+        if (playerController == null)
+            return;
+
+        var stats = playerController.GetComponent<CharacterStats>();
+        if (stats == null)
+            return;
+
+        StoreAndInventory.BattleStatSyncBridge.RestoreCharacterStats(stats);
+        ClearEquipmentEffectsForBattle();
+    }
+
+    void BindEquipmentEffectsForBattle()
+    {
+        if (playerController == null)
+            return;
+
+        var stats = playerController.GetComponent<CharacterStats>();
+        var battleEntity = playerController.GetComponent<PlayerBattleEntity>();
+        if (stats == null || battleEntity == null)
+            return;
+
+        var runner = playerController.GetComponent<EquipmentEffectRunner>();
+        if (runner == null)
+            runner = playerController.gameObject.AddComponent<EquipmentEffectRunner>();
+
+        var equipmentService = FindObjectOfType<StoreAndInventory.EquipmentService>();
+        runner.BindForBattle(equipmentService, stats, battleEntity);
+        battleEntity.SetEquipmentEffectRunner(runner);
+    }
+
+    void ClearEquipmentEffectsForBattle()
+    {
+        if (playerController == null)
+            return;
+
+        var battleEntity = playerController.GetComponent<PlayerBattleEntity>();
+        var runner = playerController.GetComponent<EquipmentEffectRunner>();
+        runner?.ClearBattleCache();
+        battleEntity?.SetEquipmentEffectRunner(null);
+    }
+
 }
